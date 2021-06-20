@@ -1,6 +1,6 @@
 # folders
 
-/palm_oil_det_dl/dataset/processed/__MACOSX/**
+/palm_oil_det_dl/dataset/processed/__MACOSX
 /palm_oil_det_dl/dataset/processed/leaderboard_holdout_data/**
 /palm_oil_det_dl/dataset/processed/leaderboard_test_data/**
 /palm_oil_det_dl/dataset/processed/train_images/**
