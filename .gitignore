@@ -1,0 +1,18 @@
+# folders
+
+/palm_oil_det_dl/dataset/processed/__MACOSX/**
+/palm_oil_det_dl/dataset/processed/leaderboard_holdout_data/**
+/palm_oil_det_dl/dataset/processed/leaderboard_test_data/**
+/palm_oil_det_dl/dataset/processed/train_images/**
+
+# extentions
+.DS_Store
+.env
+.vscode/
+
+# files
+Thumbs.db
+/palm_oil_det_dl/dataset/raw/leaderboard_holdout_data.zip
+/palm_oil_det_dl/dataset/raw/leaderboard_test_data.zip
+/palm_oil_det_dl/dataset/raw/train_images.zip
+/palm_oil_det_dl/dataset/raw/widsdatathon2019.zip
