@@ -35,7 +35,7 @@
 (13) install miniconda using `bash TheNameOfTheMiniconda.sh` for linux. for me it is `Miniconda3-py39_4.9.2-Linux-x86_64.sh`\
 (14) create new environment using `conda create -n palmoil_detection_gpu python=3.8 numpy pandas matplotlib -y`\
 (15) activate the environment using `conda activate palmoil_detection_gpu`\
-
+(16) sudo apt-get install python3-tk
 *— — — — — — — — Possible Error at this point: — — — — — — — —*\
 `conda: command not found`\
 
@@ -60,7 +60,7 @@ Log out and log in again.
 *— — — — — — — — -End of the Error Resolving — — — — — — — —*
 
 (16) run `conda install pytorch torchvision torchaudio cudatoolkit=11.1 -c pytorch -c nvidia -y` to install pytorch with gpu.
-
+(17) if you have a gpu and you have linux run `sudo apt install nvidia-cuda-toolkit` to install package to enable gpu
 
 ###### Break out
 
