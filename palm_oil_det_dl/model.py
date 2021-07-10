@@ -6,6 +6,7 @@ import matplotlib.pyplot as pyplot
 # from helper import specificity
 # from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, auc
 from IPython.display import clear_output
+# from pytorch_lightning.metrics.functional.classification import f1_score, precision
 from torchvision.transforms import transforms
 from torchvision import datasets
 from torchvision.datasets import MNIST
@@ -13,13 +14,16 @@ from torchvision.datasets import MNIST
 from pytorch_lightning import Trainer
 from torch.nn import functional as F
 from torch import nn
-from torch.nn import Sequential,Dropout, Linear, Identity, Conv2d,MaxPool2d, Conv2d, BatchNorm2d, ReLU
+from torch.nn import Sequential,Dropout, Linear, Identity, Conv2d,MaxPool2d, Conv2d, BatchNorm2d, ReLU, Softmax, Sigmoid
 from collections import OrderedDict
 from torch.utils.data import DataLoader
 from torch.optim import SGD,RMSprop
 from torchvision import models
-from process import PalmOilDataSetBackbone
+# import pytorch_lightning.metrics.functional as plm
 import pytorch_lightning.metrics.functional as plm
+from torchmetrics import Accuracy, F1
+# import pytorch_lightning.metrics.functional as FM
+# from pytorch_lightning.metrics.functional import f1_score, accuracy, recall, precision
 import pytorch_lightning as pl
 import torchvision as tv
 import torch as tch
@@ -31,17 +35,17 @@ import os
 # This defines the model architecture and forward pass
 class ResnetBackbone(nn.Module):
 
-    def __init__(self, downlaod_resnet_pretrained=False):
+    def __init__(self, download_resnet_pretrained=False):
         super().__init__()
 
         # mnist images are (1, 28, 28) (channels, width, height) 
         # resnet pretrained model
-        self.model = models.resnet50(pretrained=downlaod_resnet_pretrained)
+        self.model = models.resnet50(pretrained=download_resnet_pretrained)
 
         # edit output
         self.model.fc =  Sequential(OrderedDict([
-                                          ('drop', Dropout(p=0.1)),
-                                          ('cassifier1', Linear(2048,2)),
+                                          ('drop', Dropout(p=0.3)),
+                                          ('cassifier1', Linear(2048,1)),
         ]))
 
     def forward(self, x):
@@ -52,130 +56,85 @@ class ResnetBackbone(nn.Module):
 
 #building the pytorch lighting class Model
 class PalmOilLightningClassifier(pl.LightningModule):
-    def __init__(self, model_backbone=None, dset_backbone=PalmOilDataSetBackbone,
-                train_batch_size=32, val_batch_size=32, test_batch_size=32, 
-                train_num_workers=2, val_num_workers=2, test_num_workers=2, 
-                train_root_dir="./dataset/processed/train_images", train_csv="./dataset/processed/traininglabels.csv", 
-                val_root_dir="./dataset/processed/leaderboard_test_data", val_csv="./dataset/processed/testlabels.csv", 
-                test_root_dir="./dataset/processed/leaderboard_holdout_data", test_csv="./dataset/processed/holdout.csv", 
-                ):
+    def __init__(self, download_resnet_pretrained=False):
         """
         Args:
-            train_batch_size (int): batch size to load image during training.
-            val_batch_size (int): batch size to load image during validation.
-            test_batch_size (int): batch size to load image during testing.
 
-            train_num_workers (int): num of worker to load dataset with during training.
-            val_num_workers (int): num of worker to load dataset with during validation.
-            test_num_workers (int): num of worker to load dataset with during testing.
-
-            train_root_dir (string): Path to the croot directory where the training images are contained.
-            val_root_dir (string): Path to the croot directory where the validation images are contained.
-            test_root_dir (string): Path to the croot directory where the testing images are contained.
-                
-            train_csv (string): Path to the csv file with training annotations.
-            val_csv (string): Path to the csv file with validation annotations.
-            test_csv (string): Path to the csv file with testing annotations.
-
-            model_backbone (nn.Module): it is a custom model loader that defines how the model computes feed forward.
-            dset_backbone (torch.utils.data.Dataset): it is a custom dataset loader that defines how the dataset is loaded in.
+            backbone (nn.Module): it is a custom model loader that defines how the model computes feed forward.
         """
-        super().__init__()
-        self.model_backbone = model_backbone
-        
-         # set roots
-        (self.train_root_dir, self.val_root_dir, self.test_root_dir) = (train_root_dir, val_root_dir, test_root_dir)
+        super(PalmOilLightningClassifier, self).__init__()
+        self.acc = Accuracy()
+        # self.f1_score = F1(num_classes=2)
+        # self.save_hyperparameters()
 
-        # set csv
-        (self.train_csv, self.val_csv, self.test_csv) = (train_csv, val_csv, test_csv)
+        # mnist images are (1, 28, 28) (channels, width, height) 
+        # resnet pretrained model
+        self.model = models.resnet50(pretrained=download_resnet_pretrained)
 
-        # set bacth_size
-        (self.train_batch_size, self.val_batch_size, self.test_batch_size) = (train_batch_size, val_batch_size, test_batch_size)
+        # edit output
+        self.model.fc =  Sequential(OrderedDict([
+                                          ('drop', Dropout(p=0.3)),
+                                          ('relu', ReLU()),
+                                          ('cassifier1', Linear(2048,1)),
+                                          ('sig', Sigmoid())
 
-        # set num_workers
-        (self.train_num_workers,self.val_num_workers,self.test_num_workers) = (train_num_workers,val_num_workers,test_num_workers)
+        ]))
 
-        # load backbone
-        self.dset_backbone = dset_backbone
+    def forward(self, x):
+        # in lightning, forward defines the prediction/inference actions
+        ## TODO: Define the feedforward behavior of this model
+        ## x is the input image and, as an example, here you may choose to include a pool/conv step:
+        return  self.model(x).view(x.shape[0],-1)
 
     def configure_optimizers(self):
-        return RMSprop([{'params' : self.parameters, 'lr':0.0000002}],
-                       lr=0.0000002, momentum=0.9)
+        return SGD(self.model.parameters(), lr=0.0003)
 
     def my_loss(self, y_hat, y):
-        return F.cross_entropy(y_hat, y)
+        return F.binary_cross_entropy(y_hat, y)
 
-    def training_step(self, train_batch, batch_idx):
+    def training_step(self, batch, batch_idx,pred_threshold=0.5):
+        loss, acc = self.share_step(batch=batch,pred_threshold=pred_threshold)
+        metrics = {
+                    'loss': loss,
+                    'train_acc': acc,
+                }
+        self.log_dict(metrics, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        return metrics
+
+    def validation_step(self, batch, batch_idx,pred_threshold=0.5):
+        loss, acc = self.share_step(batch=batch,pred_threshold=pred_threshold)
+        metrics = { 'val_loss': loss, 'val_acc': acc}
+        self.log_dict(metrics, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        return metrics
+
+    def validation_step_end(self, val_step_outputs):
+        pass
+
+    def test_step(self, batch, batch_idx,pred_threshold=0.10):
+        metrics = self.validation_step(batch, batch_idx,pred_threshold)
+        metrics = {'test_acc': metrics['val_acc'], 'test_loss': metrics['val_loss']}
+        self.log_dict(metrics)
+
+    def share_step(self, batch, pred_threshold=0.5):
         # unpack
-        x,y = train_batch
+        x,y = batch
 
         # forward pass
-        logits = self.backbone(x)
+        pred_probab = self.model(x)
         
         #get predictions and loss
-        _, preds = torch.max(logits, 1)
-        loss = self.my_loss(logits, y)
-        
-        self.log("train_loss", loss, on_epoch=True)
-        return {'loss' : loss,'y_pred':preds.cpu(), 'y':y.cpu()}
+        # pred_probab = nn.Softmax(dim=1)(logits)
+        # pred_probab = nn.Sigmoid()(logits)
+        # print(pred_probab)
+        # y_hat = pred_probab.argmax(1)
+        y_hat = (pred_probab.clone().detach() > pred_threshold).type(torch.int)
+        # print(pred_probab, y[:,:1])
+        loss = self.my_loss(pred_probab, y[:,:1])
+        # print(y_hat, y[:,:1].long())
+        acc = self.acc(y_hat, y[:,:1].long())
+        return loss, acc
 
-    def validation_step(self, val_batch, batch_idx):
-        # unpack
-        x,y = val_batch
-
-        # forward pass  
-        logits = self.backbone(x)
-        
-        # get predictions and loss
-        _, preds = torch.max(logits, 1)
-        loss = self.my_loss(logits, y)
-        
-        self.log("val_loss", loss)
-        return {'val_loss' :loss,'y_pred':preds.cpu(), 'y':y.cpu()}
-
-    def test_step(self, test_batch, batch_idx):
-        # unpack
-        x,y = test_batch
-
-        # forward pass  
-        logits = self.backbone(x)
-        
-        # get predictions and loss
-        _, preds = torch.max(logits, 1)
-        loss = self.my_loss(logits, y)
-        
-        self.log("test_loss", loss)
-        return {'test_loss' :loss,'y_pred':preds.cpu(), 'y':y.cpu()}
-
-    def validation_epoch_end(self, outputs):
-        pass
-
-    def test_epoch_end(self, outputs):
-        pass
-
-    def prepare_data(self):
-         pass
-
-    def download_dset(self):
-        pass
-
-    def train_dataloader(self, transform=None):
-        transform = transform if transform else self.trans["train"]
-        assert type(transform) == type(transforms.Compose), "Train expected transform of type transforms.Compose"
-
-        train_data = self.dset_backbone(csv_file=self.train_csv, root_dir=self.train_root_dir, transform="train")
-        return DataLoader(train_data, self.train_batch_size, shuffle=True, num_workers=self.train_num_workers)
-
-    def val_dataloader(self, transform=None):
-        transform = transform if transform else self.trans["val"]
-        assert type(transform) == type(transforms.Compose), "Val expected transform of type transforms.Compose"
-
-        val_data = self.dset_backbone(csv_file=self.val_csv, root_dir=self.val_root_dir, transform="val")
-        return DataLoader(val_data, self.val_batch_size,shuffle=False, num_workers=self.val_num_workers)
-
-    def test_dataloader(self, transform=None):
-        transform = transform if transform else self.trans["test"]
-        assert type(transform) == type(transforms.Compose), "Test expected transform of type transforms.Compose"
-
-        test_data = self.dset_backbone(csv_file=self.test_csv, root_dir=self.test_root_dir, transform="test")
-        return DataLoader(test_data, self.test_batch_size ,shuffle=False, num_workers=self.test_num_workers)
+    # def on_save_checkpoint(checkpoint):
+    #     # 99% of use cases you don't need to implement this method
+    #     # checkpoint['something_cool_i_want_to_save'] = my_cool_pickable_object
+    #     pass

@@ -60,7 +60,7 @@ class PalmOilDataSetBackbone(Dataset):
                 predefined tranformer.
         """
         #TODO: Load image csv
-        self.palmoil_frame = pd.read_csv(csv_file)
+        self.palmoil_frame = pd.read_csv(csv_file)[:200]
 
         self.root_dir = root_dir
         
@@ -82,7 +82,7 @@ class PalmOilDataSetBackbone(Dataset):
     def _pick_transformer(self, phase='test'):
         if phase == "each_transform":
             return {
-                    "rand_rez_crop" : transforms.RandomResizedCrop(224, scale=(0.5, 1.0), ratio=(0.4, 1)),
+                    "rand_rez_crop" : transforms.RandomResizedCrop(224, scale=(0.5, 1.0), ratio=(0.2, 1)),
                     "rand_ver_flip" : transforms.RandomVerticalFlip(p=0.7),
                     "rand_hor_flip" : transforms.RandomHorizontalFlip(p=0.7),
                     "col_jit" : transforms.ColorJitter(brightness=0.5, contrast=0.05, saturation=0.05, hue=0.05),
@@ -93,9 +93,9 @@ class PalmOilDataSetBackbone(Dataset):
             }
         elif phase == 'train':
             return transforms.Compose([ 
-                        transforms.RandomResizedCrop(224, scale=(0.8, 1.0), ratio=(0.2, 1)),
-                        transforms.RandomVerticalFlip(),
-                        transforms.RandomHorizontalFlip(),
+                        transforms.RandomResizedCrop(224, scale=(0.5, 1.0), ratio=(0.2, 1)),
+                        transforms.RandomVerticalFlip(p=0.7),
+                        transforms.RandomHorizontalFlip(p=0.7),
                         transforms.ColorJitter(brightness=0.5, contrast=0.05, saturation=0.05, hue=0.05),
                         transforms.RandomRotation(30),
                         transforms.ToTensor(),
@@ -135,7 +135,7 @@ class PalmOilDataSetBackbone(Dataset):
             try:
                 name, ext = self.palmoil_frame.iloc[idx, 0].split(".")
                 new_name = name[:-4] + "." + ext
-                print(self.palmoil_frame.iloc[idx, 0], new_name, self.palmoil_frame.iloc[idx, 1], self.palmoil_frame.iloc[idx, 2])
+                # print(self.palmoil_frame.iloc[idx, 0], new_name, self.palmoil_frame.iloc[idx, 1], self.palmoil_frame.iloc[idx, 2])
                 img_name = os.path.join(self.root_dir,new_name)
                 image = Image.open(img_name)
             except (IOError, OSError) as e:
@@ -182,7 +182,7 @@ class PalmOilDataSetBackbone(Dataset):
             plt.pause(0.001)  # pause a bit so that plots are updated
 
             plt.show()
-            print("display")
+            # print("display")
 
         elif pick_tranformer == "to_tensor":
             transformed_image = picked_transformer(image)
@@ -194,10 +194,106 @@ class PalmOilDataSetBackbone(Dataset):
             transformed_image = picked_transformer(image_tensor)
             print(f"\n\t\t\t\b<<< normalization output >>>:\n {transformed_image} \n\n")
 
+    def check_missing_data(self, start_idx=0, stop_idx=-1):
+        stop_idx = len(self) if stop_idx <= -1 else stop_idx
+        self.no_missing = 0
+        self.missing = []
+
+        for idx in range(start_idx, stop_idx):
+            img_name = os.path.join(self.root_dir,self.palmoil_frame.iloc[idx, 0])
+            try:
+                image = Image.open(img_name)
+            except (IOError, OSError) as e:
+                try:
+                    name, ext = self.palmoil_frame.iloc[idx, 0].split(".")
+                    new_name = name[:-4] + "." + ext
+                    img_name = os.path.join(self.root_dir,new_name)
+                    image = Image.open(img_name)
+                except (IOError, OSError) as e:
+                    self.no_missing += 1
+                    self.missing.append(idx)
+        return self.no_missing, self.missing
+
+    def save_dset(self, name=None):
+        self.palmoil_frame.to_csv(name, index=False)
+
+    def remove_all_missing(self, save_as=None):
+        self.palmoil_frame = self.palmoil_frame.drop(self.missing)
+        self.save_dset(name=save_as)
+        self.no_missing, self.missing = 0, []
+
+class PalmOilDataSetModule(pl.LightningDataModule):
+    def __init__(self, backbone=PalmOilDataSetBackbone,
+                train_batch_size=5, val_batch_size=5, test_batch_size=5, 
+                train_num_workers=2, val_num_workers=2, test_num_workers=2, 
+                train_root_dir="./dataset/processed/train_images", train_csv="./dataset/processed/traininglabels2.csv", 
+                val_root_dir="./dataset/processed/leaderboard_test_data", val_csv="./dataset/processed/testlabels2.csv", 
+                test_root_dir="./dataset/processed/leaderboard_holdout_data", test_csv="./dataset/processed/holdout2.csv", 
+                ):
+        """
+        Args:
+            train_batch_size (int): batch size to load image during training.
+            val_batch_size (int): batch size to load image during validation.
+            test_batch_size (int): batch size to load image during testing.
+
+            train_num_workers (int): num of worker to load dataset with during training.
+            val_num_workers (int): num of worker to load dataset with during validation.
+            test_num_workers (int): num of worker to load dataset with during testing.
+
+            train_root_dir (string): Path to the croot directory where the training images are contained.
+            val_root_dir (string): Path to the croot directory where the validation images are contained.
+            test_root_dir (string): Path to the croot directory where the testing images are contained.
+                
+            train_csv (string): Path to the csv file with training annotations.
+            val_csv (string): Path to the csv file with validation annotations.
+            test_csv (string): Path to the csv file with testing annotations.
+
+            backbone (torch.utils.data.Dataset): it is a custom dataset loader that defines how the dataset is loaded in.
+        """
+        super().__init__()
+
+        # load backbone
+        self.backbone = backbone
+
+         # set roots
+        (self.train_root_dir, self.val_root_dir, self.test_root_dir) = (train_root_dir, val_root_dir, test_root_dir)
+
+        # set csv
+        (self.train_csv, self.val_csv, self.test_csv) = (train_csv, val_csv, test_csv)
+
+        # set bacth_size
+        (self.train_batch_size, self.val_batch_size, self.test_batch_size) = (train_batch_size, val_batch_size, test_batch_size)
+
+        # set num_workers
+        (self.train_num_workers,self.val_num_workers,self.test_num_workers) = (train_num_workers,val_num_workers,test_num_workers)
+
+
+    def setup(self, stage):
+        # transforms for images
+        pass
+
+    def train_dataloader(self):
+        train_data = self.backbone(csv_file=self.train_csv, root_dir=self.train_root_dir, transform="train")
+        return DataLoader(train_data, self.train_batch_size, shuffle=True, num_workers=self.train_num_workers)
+
+    def val_dataloader(self):
+        val_data = self.backbone(csv_file=self.val_csv, root_dir=self.val_root_dir, transform="val")
+        return DataLoader(val_data, self.val_batch_size,shuffle=False, num_workers=self.val_num_workers)
+
+    def test_dataloader(self):
+        test_data = self.backbone(csv_file=self.test_csv, root_dir=self.test_root_dir, transform="test")
+        return DataLoader(test_data, self.test_batch_size ,shuffle=False, num_workers=self.test_num_workers)
+
 def main(args):
     # make a PalmOilDataModule instance also passing PalmOilDataSetBackbone as the backbone
-    PalmOilDataSet = PalmOilDataSetBackbone(csv_file="./dataset/processed/testlabels.csv", root_dir="./dataset/processed/leaderboard_test_data", transform=None)
-    PalmOilDataSet.display(idx=95, pick_tranformer="norm")
+    PalmOilDataSet = PalmOilDataSetBackbone(csv_file="./dataset/processed/traininglabels2.csv", root_dir="./dataset/processed/train_images", transform=None)
+    # PalmOilDataSet.save_dset(name="outcheck.csv")
+    PalmOilDataSet.display(idx=95, pick_tranformer="rand_rez_crop")
+    # m,n = PalmOilDataSet.check_missing_data()
+    # print(m,n)
+    # PalmOilDataSet.remove_all_missing(save_as="./dataset/processed/holdout2.csv")
+
+    # data = PalmOilDataSetModule(train_batch_size=32, train_num_workers=8)
 
 
 if __name__ == "__main__":
