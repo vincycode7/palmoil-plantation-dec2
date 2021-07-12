@@ -77,5 +77,24 @@ Log out and log in again.
 
 
 (17) if you have a gpu and you have linux run `sudo apt install nvidia-cuda-toolkit` to install package to enable gpu
+(18) if experience timeout while downloading you can try apt-fast by following the steps below
+
+    step 1-- > sudo apt-get install axel
+
+    step 2 --> sudo add-apt-repository ppa:apt-fast/stable
+
+    step 3 --> sudo apt-get update
+
+    step 4 --> sudo apt-get -y install apt-fast
+
+    step 5 --> sudo nano /etc/apt-fast.conf
+
+    step 6 --> uncomment MIRROR in the apt-fast.conf file
+
+    step 7 --> sudo apt-fast install nvidia-cuda-toolkit -y
+
+    step 8 --> nvcc -V (in terminal to confirm cuda, if available run step 9)
+
+    step 9 --> pip3 install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
 
 ###### Break out
